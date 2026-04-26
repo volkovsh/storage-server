@@ -1,0 +1,9 @@
+storage_data/
+__pycache__/
+*.py[cod]
+.Python
+.DS_Store
+.idea/
+.vscode/
+*.log
+
