@@ -259,7 +259,7 @@ class StorageHandler(BaseHTTPRequestHandler):
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Lab 5: remote file storage over HTTP (REST API)")
-    p.add_argument("--host", default="127.0.0.1", help="Listen host")
+    p.add_argument("--host", default="0.0.0.0", help="Listen host")
     p.add_argument("--port", type=int, default=8000, help="Listen port")
     p.add_argument(
         "--root",

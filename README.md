@@ -2,28 +2,28 @@
 
 Сервис реализует удалённое файловое хранилище. Путь в URL задаёт логическое расположение файла/каталога в хранилище.
 
-Пример: `http://localhost:8000/path/to/file.txt` соответствует файлу `file.txt` по пути `/path/to`.
+Пример: `http://localhost:8000/path/to/file` соответствует файлу `file` по пути `/path/to` (расширение не требуется).
 
 ## Запуск
 
 ```bash
-python3 storage_server.py --host 127.0.0.1 --port 8000 --root storage_data
+python3 storage_server.py --host 0.0.0.0 --port 8000 --root storage_data
 ```
 
 ## REST API
 
 Ниже приведён пример тестирования через **Postman**.
 
-Базовый URL: `http://127.0.0.1:8000/`
+Базовый URL: `http://<IP_сервера>:8000/` (например, `http://192.168.1.20:8000/`)
 
 ### PUT — загрузка файла (с перезаписью)
 
 В Postman:
 
 - **Method**: `PUT`
-- **URL**: `http://127.0.0.1:8000/docs/hello.txt`
+- **URL**: `http://<IP_сервера>:8000/docs/hello`
 - **Body**:
-  - `binary` → выбрать файл (например `hello.txt`)
+  - `binary` → выбрать файл (например `hello.txt`, имя файла на диске не обязано совпадать с URL)
   - или `raw` → вручную ввести текст
 - **Send**
 
@@ -36,7 +36,7 @@ python3 storage_server.py --host 127.0.0.1 --port 8000 --root storage_data
 В Postman:
 
 - **Method**: `GET`
-- **URL**: `http://127.0.0.1:8000/docs/hello.txt`
+- **URL**: `http://<IP_сервера>:8000/docs/hello`
 - **Send**
 
 Ожидаемо: `200 OK`, в **Body** содержимое файла.
@@ -46,7 +46,7 @@ python3 storage_server.py --host 127.0.0.1 --port 8000 --root storage_data
 В Postman:
 
 - **Method**: `GET`
-- **URL**: `http://127.0.0.1:8000/docs/`
+- **URL**: `http://<IP_сервера>:8000/docs/`
 - **Send**
 
 Ответ: JSON со списком `items` (name/type/size/mtime). Открытие каталога также работает в браузере.
@@ -56,7 +56,7 @@ python3 storage_server.py --host 127.0.0.1 --port 8000 --root storage_data
 В Postman:
 
 - **Method**: `HEAD`
-- **URL**: `http://127.0.0.1:8000/docs/hello.txt`
+- **URL**: `http://<IP_сервера>:8000/docs/hello`
 - **Send**
 
 Заголовки:
@@ -69,8 +69,8 @@ python3 storage_server.py --host 127.0.0.1 --port 8000 --root storage_data
 
 - **Method**: `DELETE`
 - **URL**:
-  - файл: `http://127.0.0.1:8000/docs/hello.txt`
-  - каталог: `http://127.0.0.1:8000/docs/`
+  - файл: `http://<IP_сервера>:8000/docs/hello`
+  - каталог: `http://<IP_сервера>:8000/docs/`
 - **Send**
 
 Коды:
