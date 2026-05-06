@@ -63,6 +63,25 @@ class StorageHandler(BaseHTTPRequestHandler):
         # quieter: log basic info to stderr
         sys.stderr.write("%s - - [%s] %s\n" % (self.client_address[0], self.log_date_time_string(), format % args))
 
+    def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+        try:
+            code_int = int(code)  # type: ignore[arg-type]
+            phrase = HTTPStatus(code_int).phrase
+            code_part = f"{code_int} {phrase}"
+        except Exception:
+            code_part = str(code)
+
+        sys.stderr.write(
+            '%s - - [%s] "%s" %s %s\n'
+            % (
+                self.client_address[0],
+                self.log_date_time_string(),
+                self.requestline,
+                code_part,
+                size,
+            )
+        )
+
     def _send_json(self, status: int, payload: object) -> None:
         data = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
         self.send_response(status)
@@ -174,6 +193,57 @@ class StorageHandler(BaseHTTPRequestHandler):
             self._send_text(HTTPStatus.BAD_REQUEST, "PUT target must be a file path (no trailing slash)")
             return
 
+        copy_from = self.headers.get("X-Copy-From")
+        if copy_from is not None:
+            src, src_err = safe_join(self.storage_root, copy_from)
+            if src_err or src is None:
+                self._send_text(HTTPStatus.BAD_REQUEST, src_err or "Bad request")
+                return
+
+            if not src.exists():
+                self._send_text(HTTPStatus.NOT_FOUND, "Source not found")
+                return
+
+            if not src.is_file():
+                self._send_text(HTTPStatus.BAD_REQUEST, "Source must be a file")
+                return
+
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                self._send_text(HTTPStatus.INTERNAL_SERVER_ERROR, f"Failed to create directories: {exc}")
+                return
+
+            existed = target.exists()
+            try:
+                if src.resolve() == target.resolve():
+                    # no-op copy onto itself
+                    self.send_response(HTTPStatus.OK)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+            except OSError:
+                # if resolve fails for any reason, continue with copy attempt
+                pass
+
+            tmp = target.with_name(target.name + ".copy_tmp")
+            try:
+                with src.open("rb") as in_f, tmp.open("wb") as out_f:
+                    shutil.copyfileobj(in_f, out_f, length=64 * 1024)
+                tmp.replace(target)
+            except OSError as exc:
+                try:
+                    tmp.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                self._send_text(HTTPStatus.INTERNAL_SERVER_ERROR, f"Failed to copy file: {exc}")
+                return
+
+            self.send_response(HTTPStatus.OK if existed else HTTPStatus.CREATED)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+
         length_s = self.headers.get("Content-Length")
         if length_s is None:
             self._send_text(HTTPStatus.LENGTH_REQUIRED, "Content-Length required")
@@ -273,12 +343,13 @@ def main() -> None:
     args = parse_args()
     root = Path(args.root)
     root.mkdir(parents=True, exist_ok=True)
+    root = root.resolve()
 
     httpd = ThreadingHTTPServer((args.host, args.port), StorageHandler)
     httpd.storage_root = root  # type: ignore[attr-defined]
 
     print(f"Storage server listening on http://{args.host}:{args.port}/")
-    print(f"Storage root: {root.resolve()}")
+    print(f"Storage root: {root}")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
