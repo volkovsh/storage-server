@@ -16,7 +16,7 @@ from urllib.parse import unquote, urlsplit
 
 
 def http_date_from_ts(ts: float) -> str:
-    # RFC 7231 IMF-fixdate
+    # HTTP требует формат даты RFC 7231 IMF-fixdate (GMT, не локальное время).
     return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
 
 
@@ -25,13 +25,13 @@ def safe_join(root: Path, url_path: str) -> Tuple[Optional[Path], Optional[str]]
     Map URL path to filesystem path under root.
     Prevent path traversal; returns (path, error_message).
     """
-    # strip query/fragment if passed accidentally
+    # На вход может прийти строка с ?query/#fragment — в отображении на FS участвует только path.
     raw_path = urlsplit(url_path).path
     # decode %xx and normalize to POSIX
     raw_path = unquote(raw_path)
     raw_path = posixpath.normpath(raw_path)
 
-    # normpath collapses // and ..; ensure it remains absolute-like for split
+    # normpath схлопывает // и ..; запрещаем попытки выйти выше корня хранилища.
     if raw_path.startswith("../") or raw_path == "..":
         return None, "Invalid path"
 
@@ -41,6 +41,7 @@ def safe_join(root: Path, url_path: str) -> Tuple[Optional[Path], Optional[str]]
     if rel == ".":
         rel = ""
 
+    # Делаем абсолютный путь, чтобы проверка "лежит внутри root" была надёжной.
     candidate = (root / rel).resolve()
     try:
         root_resolved = root.resolve()
@@ -64,6 +65,8 @@ class StorageHandler(BaseHTTPRequestHandler):
         sys.stderr.write("%s - - [%s] %s\n" % (self.client_address[0], self.log_date_time_string(), format % args))
 
     def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+        # BaseHTTPRequestHandler по умолчанию выводит только числовой код.
+        # Для лабы удобнее видеть код + расшифровку (например, "201 Created").
         try:
             code_int = int(code)  # type: ignore[arg-type]
             phrase = HTTPStatus(code_int).phrase
@@ -113,7 +116,7 @@ class StorageHandler(BaseHTTPRequestHandler):
             return
 
         if target.is_dir():
-            # Directory listing as JSON
+            # Для каталогов отдаём JSON-список (удобно проверять curl/Postman/браузером).
             try:
                 items = []
                 for entry in sorted(target.iterdir(), key=lambda p: (p.is_file(), p.name.lower())):
@@ -195,6 +198,8 @@ class StorageHandler(BaseHTTPRequestHandler):
 
         copy_from = self.headers.get("X-Copy-From")
         if copy_from is not None:
+            # Режим копирования: PUT на целевой путь + заголовок "X-Copy-From: /src/path".
+            # Тело запроса здесь не требуется и не используется.
             src, src_err = safe_join(self.storage_root, copy_from)
             if src_err or src is None:
                 self._send_text(HTTPStatus.BAD_REQUEST, src_err or "Bad request")
@@ -217,17 +222,19 @@ class StorageHandler(BaseHTTPRequestHandler):
             existed = target.exists()
             try:
                 if src.resolve() == target.resolve():
-                    # no-op copy onto itself
+                    # Копирование "в самого себя" считаем no-op.
                     self.send_response(HTTPStatus.OK)
                     self.send_header("Content-Length", "0")
                     self.end_headers()
                     return
             except OSError:
-                # if resolve fails for any reason, continue with copy attempt
+                # Если resolve() не сработал — продолжаем копирование (best effort).
                 pass
 
             tmp = target.with_name(target.name + ".copy_tmp")
             try:
+                # Пишем во временный файл и атомарно заменяем целевой.
+                # Так не останется "наполовину записанного" файла при сбое/остановке.
                 with src.open("rb") as in_f, tmp.open("wb") as out_f:
                     shutil.copyfileobj(in_f, out_f, length=64 * 1024)
                 tmp.replace(target)
@@ -268,6 +275,7 @@ class StorageHandler(BaseHTTPRequestHandler):
         existed = target.exists()
         tmp = target.with_name(target.name + ".upload_tmp")
         try:
+            # Сначала пишем загрузку во временный файл, затем атомарно переносим на место.
             with tmp.open("wb") as f:
                 remaining = length
                 while remaining > 0:
@@ -343,6 +351,7 @@ def main() -> None:
     args = parse_args()
     root = Path(args.root)
     root.mkdir(parents=True, exist_ok=True)
+    # Держим root абсолютным, чтобы не смешивать относительные/абсолютные пути в проверках.
     root = root.resolve()
 
     httpd = ThreadingHTTPServer((args.host, args.port), StorageHandler)
